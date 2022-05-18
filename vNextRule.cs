@@ -19,6 +19,7 @@ namespace ConsoleApp {
     public string QuarkExpression { get; set; }
     public string EnforcementType { get; set; }
     public string OperationScript { get; set; }
+    public string GuardType { get; set; }
 
     private string Tail {get; set;}
     // This should be set by the python source file: wpr_migration_rules file
@@ -32,6 +33,7 @@ namespace ConsoleApp {
       Tail = ")";
 
       OperationScript = string.Empty;
+      GuardType = string.Empty;
     }
 
     private string Format(string str, int indentAmount = 2, bool isFirstLine=false) {
@@ -50,6 +52,7 @@ namespace ConsoleApp {
         + Format($"quark_exp={QuarkExpression}")
         + Format($"enforcement_type={EnforcementType}")
         + (OperationScript == string.Empty? string.Empty : Format($"op_str={OperationScript}"))
+        + (GuardType == string.Empty? string.Empty : Format($"guard_type={GuardType}"))
         + Format(Tail, 1);
     }
   }

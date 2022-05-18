@@ -55,6 +55,11 @@ namespace ConsoleApp {
     ///  - Start the rule from that index
     ///  - End the rule at next rule's found index
     /// </summary>
+    /// <remarks>
+    /// Filters enabled,
+    /// - Experimental Rules
+    /// - 'fuss_limited_discoverable' rules
+    /// </remarks>
     /// <returns>
     /// Returns Empty string if no next rule found
     /// </returns>
@@ -68,7 +73,7 @@ namespace ConsoleApp {
       if (ShouldSkipExpRule)
       {
         while ((ruleStr != string.Empty) &&
-            ruleStr.Contains("QuarkWprConfigStatus.EXPERIMENTAL"))
+            (ruleStr.Contains("QuarkWprConfigStatus.EXPERIMENTAL") || ruleStr.Contains("fuss_limited_discoverable")))
         {
           ruleStr = GetNextRuleMain();
         }
@@ -200,13 +205,49 @@ namespace ConsoleApp {
     }
 
     /// <summary>
+    /// Get Action Trigger Statement
+    /// formats
+    /// - """ statement """
+    /// - " statement "
+    /// - statement_variable
+    /// </summary>
+    private string GetActionTriggerStatement(string haystack) {
+      var needles = new string[] {
+          "actionTriggerStatement=\"\"\"",
+          "actionTriggerStatement=\"",
+          "actionTriggerStatement="};
+
+      var tailMarks = new string[] {"\"\"\"",  "\",", ","};
+      int ATSType = 0;
+      int start = 0;
+
+      for (; ATSType<3; ATSType++) {
+        start = haystack.IndexOf(needles[ATSType]) + needles[ATSType].Length;
+
+        if (start >= needles[ATSType].Length)
+          break;
+      }
+
+      if (ATSType == 3)
+        // throw new System.IO.InvalidDataException("Tag: docString=* not found!");
+        return "";
+
+      int end = haystack.IndexOf(tailMarks[ATSType], start + 1, haystack.Length-start-1);
+      // trigger statement
+      var tStat = haystack.Substring(start, end-start);
+      if (ATSType == 2)
+        tStat = '{' + tStat  + '}';
+      return tStat;
+    }
+
+    /// <summary>
     /// Get Quark Expression
     /// Straight forward
     /// </summary>
     /// <returns>
     /// Given a field name in old quark rule, return quark exp
     /// </returns>
-    private string GetQuarkExpression(string haystack) {
+    private string GetQuarkExpression(string haystack, vNextRule rule) {
       string needle = "resultFilterStatement=";
       var tailMark = ",";
 
@@ -225,8 +266,12 @@ namespace ConsoleApp {
         quarkExpStr = quarkExpStr.TrimStart();
         quarkExpStr = quarkExpStr.TrimEnd(new char[] {' ', '\r', '\n'});
       }
-      else if (quarkExpStr.Contains('('))
-        quarkExpStr = AdjustIndentation(quarkExpStr);
+      else {
+        rule.GuardType = "IntegrityGuardType.NONE";
+
+        if (quarkExpStr.Contains('('))
+          quarkExpStr = AdjustIndentation(quarkExpStr);
+      }
       
       if (ImportRefs.Add(quarkExpStr)) {
         var methodName = quarkExpStr;
@@ -241,6 +286,26 @@ namespace ConsoleApp {
 
       return quarkExpStr;
     }
+
+    /// <summary>
+    /// Join Action Trigger statement with Quark Expression
+    /// </summary>
+    private string CombineATSAndQuarkExp(string ActionTriggerStatement, string QuarkExpression) {
+      if (ActionTriggerStatement == string.Empty || ActionTriggerStatement == "1")
+        return QuarkExpression;
+      return "f\"\"\"(" + ActionTriggerStatement + ") and ({" + QuarkExpression + "})\"\"\"";
+    }
+
+
+    /// <summary>
+    /// Join Action Trigger statement with Quark Expression
+    /// </summary>
+    private static string GetIntegrityEnforcementTypeMap(string opStr) => opStr switch {
+      "removeResult()" => "IntegrityEnforcementType.BLOCKLIST",
+      "placeResultModule(100, 'result')" => "IntegrityEnforcementType.PUSH_BOTTOM",
+      "placeResultModule(0, 'module')" => "IntegrityEnforcementType.BRING_TOP",
+      _ => "IntegrityEnforcementType.ADDITIVE_DEMOTION",
+    };
 
     /// <summary> 
     /// Sets
@@ -268,19 +333,10 @@ namespace ConsoleApp {
       int end = haystack.IndexOf(tailMark, start + 1, haystack.Length-start-1);
       var opStr = haystack.Substring(start, end-start);
 
-      if (opStr.StartsWith("removeResult"))
-        rule.EnforcementType = "IntegrityEnforcementType.BLOCKLIST";
-      else if(opStr.StartsWith("placeResultModule")) {
-        if(opStr.StartsWith("placeResultModule(100"))
-          rule.EnforcementType = "IntegrityEnforcementType.PUSH_BOTTOM";
-        else {
-          rule.EnforcementType = "IntegrityEnforcementType.PUSH_BOTTOM";
-        }
-      }
-      else {
-        rule.EnforcementType = "IntegrityEnforcementType.ADDITIVE_DEMOTION";
-        rule.OperationScript = $"\"{opStr}\"";
-      }
+      rule.EnforcementType = GetIntegrityEnforcementTypeMap(opStr);
+
+      if (rule.EnforcementType == "IntegrityEnforcementType.ADDITIVE_DEMOTION")
+        rule.OperationScript = opStr.Contains('(') ? $"\"{opStr}\"" : opStr;
     }
 
     /// <summary>
@@ -305,7 +361,10 @@ namespace ConsoleApp {
       // Set each field, case by case
       rule.Name = GetRuleName(legacyRule);
       rule.Desc = GetRuleDescription(legacyRule);
-      rule.QuarkExpression = GetQuarkExpression(legacyRule);
+      var actionTriggerStatement = GetActionTriggerStatement(legacyRule);
+      var quarkExp= GetQuarkExpression(legacyRule, rule);
+      rule.QuarkExpression = CombineATSAndQuarkExp(actionTriggerStatement, quarkExp);
+      // rule.QuarkExpression = quarkExp;
       // Set remaining 2 fields
       SetEnforcementDetails(legacyRule, rule);
 
