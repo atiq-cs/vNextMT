@@ -1,10 +1,7 @@
 // Copyright (c) FFTSys Inc. All rights reserved.
 // Use of this source code is governed by a GPL-v3 license
 
-namespace ConsoleApp {
-  using System.Text;
-  using System.Collections.Generic;
-
+namespace Parser {
   /// <summary>
   /// vNextRule
   /// </summary>
